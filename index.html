@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vocabulary Bomb</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;900&family=Noto+Serif+TC:wght@700;900&family=Fredoka:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* =========================================================
+   基礎設定
+   ========================================================= */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { height: 100%; overflow: hidden; }
+body {
+  height: 100%;
+  overflow-y: auto;            /* body 本身當捲動容器，震動時 fixed 元素不會跑位 */
+  font-family: "Fredoka", "Noto Sans TC", system-ui, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  transition: background 0.6s ease, color 0.4s ease;
+  --text: #1f2a44;
+  --panel: rgba(255,255,255,0.85);
+  --panel-text: #1f2a44;
+  --accent: #ff5a36;
+  --accent-text: #fff;
+  --card-font: "Noto Sans TC", sans-serif;
+}
+
+/* ---------- 頂部工具列 ---------- */
+header {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  padding: 12px 20px;
+  background: var(--panel);
+  color: var(--panel-text);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 18px rgba(0,0,0,0.15);
+}
+header h1 {
+  font-size: 1.6rem; font-weight: 700; letter-spacing: 0.5px;
+  margin-right: auto; display: flex; align-items: center; gap: 8px;
+}
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.btn, select {
+  font-family: inherit; font-size: 1rem; font-weight: 700;
+  padding: 9px 16px; border-radius: 999px; border: 2px solid transparent;
+  cursor: pointer; background: #fff; color: #1f2a44;
+  box-shadow: 0 2px 0 rgba(0,0,0,0.2);
+  transition: transform 0.1s, filter 0.2s;
+}
+.btn:hover, select:hover { filter: brightness(1.05); transform: translateY(-1px); }
+.btn:active { transform: translateY(1px); box-shadow: none; }
+.btn.primary { background: var(--accent); color: var(--accent-text); }
+.btn.mic-on { background: #19b36b; color: #fff; animation: micPulse 1.4s infinite; }
+@keyframes micPulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(25,179,107,0.6); }
+  50%     { box-shadow: 0 0 0 10px rgba(25,179,107,0); }
+}
+#fileInput { display: none; }
+
+/* ---------- 狀態列 ---------- */
+.status-bar {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 12px;
+  padding: 14px 20px 4px;
+}
+.pill {
+  background: var(--panel); color: var(--panel-text);
+  padding: 8px 16px; border-radius: 999px; font-weight: 700;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+}
+.pill .num { font-size: 1.25rem; color: var(--accent); }
+#heardPill { max-width: 90vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#heardText { font-family: "Noto Sans TC", sans-serif; }
+
+/* ---------- 卡片網格 ---------- */
+main { padding: 16px 20px 60px; }
+#grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 18px; max-width: 1300px; margin: 0 auto;
+}
+.empty-hint {
+  grid-column: 1 / -1; text-align: center; padding: 60px 20px;
+  background: var(--panel); color: var(--panel-text); border-radius: 20px; font-size: 1.2rem;
+}
+
+/* ---------- 卡片（3D 翻轉） ---------- */
+.card {
+  position: relative; aspect-ratio: 4 / 5;
+  border: none; background: none; cursor: pointer; padding: 0;
+  perspective: 900px; font: inherit;
+}
+.card:disabled { cursor: default; }
+.card-inner {
+  position: absolute; inset: 0;
+  transform-style: preserve-3d;
+  transition: transform 0.6s cubic-bezier(.4,1.6,.5,1);
+}
+.card:not(:disabled):hover .card-inner { transform: translateY(-6px) rotate(-1deg); }
+.card.flipped .card-inner { transform: rotateY(180deg); }
+.card-face {
+  position: absolute; inset: 0;
+  backface-visibility: hidden; -webkit-backface-visibility: hidden;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 12px; overflow: hidden;
+}
+.card-back { transform: rotateY(180deg); }
+.word {
+  font-family: var(--card-font); font-weight: 900;
+  line-height: 1.15; text-align: center; word-break: break-all;
+  position: relative; z-index: 2;
+}
+.safe-icon { font-size: 2.2rem; line-height: 1; margin-bottom: 6px; position: relative; z-index: 2; }
+.card-back.safe .word { font-size: 1.4rem !important; opacity: 0.9; }
+.bomb-visual { width: 85%; max-height: 75%; object-fit: contain; position: relative; z-index: 2; }
+.bomb-emoji { font-size: 5rem; line-height: 1; position: relative; z-index: 2; }
+.card.bomb .bomb-visual, .card.bomb .bomb-emoji { animation: bombPop 0.7s ease-out; }
+.card.bomb { z-index: 10; }
+.card.bomb .card-inner { animation: bombGrow 1.2s ease-out forwards; }
+@keyframes bombPop {
+  0% { transform: scale(0.2) rotate(-30deg); }
+  60% { transform: scale(1.35) rotate(10deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+@keyframes bombGrow {
+  0% { transform: rotateY(180deg) scale(1); }
+  40% { transform: rotateY(180deg) scale(1.25); }
+  100% { transform: rotateY(180deg) scale(1.08); }
+}
+.card.voice-hit .card-inner { filter: drop-shadow(0 0 16px #19b36b); }
+
+/* =========================================================
+   爆炸特效：Shake + Red flash
+   ========================================================= */
+body.shake { animation: shake 1.5s cubic-bezier(.36,.07,.19,.97) both; }
+@keyframes shake {
+  0%,100% { transform: translate(0,0) rotate(0); }
+  5%  { transform: translate(-18px, 10px) rotate(-2deg); }
+  10% { transform: translate(20px, -12px) rotate(2deg); }
+  15% { transform: translate(-22px, 6px) rotate(-1.5deg); }
+  20% { transform: translate(18px, 14px) rotate(1.5deg); }
+  30% { transform: translate(-14px, -10px) rotate(-1deg); }
+  40% { transform: translate(12px, 8px) rotate(1deg); }
+  50% { transform: translate(-9px, -6px); }
+  60% { transform: translate(7px, 5px); }
+  70% { transform: translate(-5px, -3px); }
+  80% { transform: translate(3px, 2px); }
+  90% { transform: translate(-1px, 1px); }
+}
+#flash {
+  position: fixed; inset: 0; pointer-events: none; z-index: 900; opacity: 0;
+  background: radial-gradient(circle at center, rgba(255,230,120,0.9) 0%, rgba(255,40,0,0.85) 35%, rgba(160,0,0,0.9) 100%);
+}
+#flash.on { animation: redFlash 1.6s ease-out forwards; }
+@keyframes redFlash {
+  0% { opacity: 0; } 5% { opacity: 1; } 15% { opacity: 0.35; } 25% { opacity: 0.95; }
+  40% { opacity: 0.3; } 55% { opacity: 0.7; } 100% { opacity: 0; }
+}
+
+/* 緊張狀態：畫面邊緣暗紅脈動 */
+#tension {
+  position: fixed; inset: 0; pointer-events: none; z-index: 40; opacity: 0;
+  box-shadow: inset 0 0 120px 30px rgba(220,0,0,0.55);
+  transition: opacity 0.6s;
+}
+body.tense #tension { opacity: 1; animation: tensionPulse var(--beat, 1s) infinite; }
+@keyframes tensionPulse { 0%,100% { opacity: 0.35; } 15% { opacity: 1; } 30% { opacity: 0.5; } 45% { opacity: 0.9; } }
+
+/* ---------- 結果視窗 ---------- */
+#modal {
+  position: fixed; inset: 0; z-index: 1000; display: none;
+  align-items: center; justify-content: center; background: rgba(0,0,0,0.55);
+}
+#modal.show { display: flex; }
+.modal-box {
+  background: #fff; color: #1f2a44; border-radius: 28px; padding: 30px 40px;
+  text-align: center; max-width: 92vw; width: 440px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  animation: modalIn 0.5s cubic-bezier(.3,1.7,.5,1);
+}
+@keyframes modalIn { from { transform: scale(0.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.modal-visual { height: 150px; display: flex; align-items: center; justify-content: center; margin-bottom: 8px; }
+.modal-visual img { max-height: 150px; max-width: 100%; }
+.modal-visual .bomb-emoji { font-size: 7rem; }
+.modal-box h2 { font-size: 2.6rem; margin-bottom: 6px; }
+.modal-box p { font-size: 1.15rem; margin-bottom: 20px; }
+.modal-box .bomb-word { font-family: "Noto Sans TC", sans-serif; font-weight: 900; color: #e0301e; }
+
+/* =========================================================
+   主題：Default
+   ========================================================= */
+body.theme-default .card-front {
+  background: #fff; border-radius: 18px; border: 4px solid #4a7dff;
+  box-shadow: 0 6px 0 #2f5bd1, 0 10px 18px rgba(0,0,0,0.18); color: #1f2a44;
+}
+body.theme-default .card-back.safe {
+  background: #b8f2c8; border-radius: 18px; border: 4px solid #22b35e; color: #146b38;
+  box-shadow: 0 6px 0 #1a8c49;
+}
+body.theme-default .card-back.bomb { background: #ffd23f; border-radius: 18px; border: 4px solid #e0301e; }
+
+/* =========================================================
+   主題：Halloween（墓碑）
+   ========================================================= */
+body.theme-halloween { --text: #f3e9ff; --panel: rgba(30,12,45,0.85); --panel-text: #f3e9ff; --accent: #ff7a1a; }
+body.theme-halloween .card-face { border-radius: 50% 50% 10px 10px / 34% 34% 10px 10px; }
+body.theme-halloween .card-front {
+  background: linear-gradient(160deg, #a9a9b8 0%, #6e6e80 55%, #4a4a5a 100%);
+  border: 3px solid #3a3a48; color: #232330;
+  box-shadow: inset -8px -10px 0 rgba(0,0,0,0.18), 0 10px 0 #3b2a1a;
+  padding-top: 34px;
+}
+body.theme-halloween .card-front::before {
+  content: "R.I.P"; position: absolute; top: 16%; font-family: "Noto Serif TC", serif;
+  font-size: 0.85rem; letter-spacing: 3px; color: rgba(30,30,40,0.55);
+}
+body.theme-halloween .card-front::after { /* 裂痕 */
+  content: ""; position: absolute; right: 18%; bottom: 14%; width: 2px; height: 26%;
+  background: rgba(30,30,40,0.35); transform: rotate(18deg);
+}
+body.theme-halloween .card-front .word { text-shadow: 1px 1px 0 rgba(255,255,255,0.35); }
+body.theme-halloween .card-back.safe {
+  background: linear-gradient(160deg, #6fffb0, #1f8a5a); color: #08301e; border: 3px solid #b8ffd8;
+  box-shadow: 0 0 22px #6fffb0;
+}
+body.theme-halloween .card-back.bomb { background: radial-gradient(circle, #ff9a1a, #4a0a50); border: 3px solid #ffb347; }
+
+/* =========================================================
+   主題：New Year（紅包）
+   ========================================================= */
+body.theme-newyear { --text: #ffe9a8; --panel: rgba(120,0,0,0.85); --panel-text: #ffe9a8; --accent: #ffcc33; --accent-text: #8b0000; }
+body.theme-newyear .card-front {
+  background: linear-gradient(180deg, #e02020 0%, #b80f0f 100%);
+  border-radius: 12px; border: 3px solid #ffcc33; color: #ffdf6b;
+  box-shadow: 0 8px 16px rgba(0,0,0,0.3); padding-top: 40%;
+}
+body.theme-newyear .card-front::before { /* 紅包封口 */
+  content: ""; position: absolute; top: -45%; left: -15%; width: 130%; height: 80%;
+  background: #c41616; border-radius: 0 0 50% 50%; border-bottom: 3px solid #ffcc33;
+}
+body.theme-newyear .card-front::after { /* 金色圓扣 */
+  content: "福"; position: absolute; top: 22%; left: 50%; transform: translateX(-50%);
+  width: 38px; height: 38px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #fff2b0, #f0b400);
+  color: #b80f0f; font-family: "Noto Serif TC", serif; font-weight: 900; font-size: 1.2rem;
+  display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.3); z-index: 3;
+}
+body.theme-newyear .card-back.safe {
+  background: linear-gradient(160deg, #fff3b8, #f2c230); color: #9a1a00; border-radius: 12px; border: 3px solid #fff;
+}
+body.theme-newyear .card-back.bomb { background: radial-gradient(circle, #ffef8a, #ff3300 70%); border-radius: 12px; border: 3px solid #ffcc33; }
+
+/* =========================================================
+   主題：Zoo（木牌）
+   ========================================================= */
+body.theme-zoo { --text: #fffbe8; --panel: rgba(30,60,20,0.85); --panel-text: #fffbe8; --accent: #ffb703; --accent-text: #3a2400; }
+body.theme-zoo .card-front {
+  background:
+    repeating-linear-gradient(0deg, rgba(0,0,0,0.08) 0 2px, transparent 2px 22px),
+    linear-gradient(90deg, #a8703a, #c48a4b 30%, #9a6230 60%, #b97d42);
+  border-radius: 10px; border: 4px solid #6b3f17; color: #fff6dc;
+  box-shadow: 0 8px 0 #4a2a0e, 0 12px 18px rgba(0,0,0,0.3);
+}
+body.theme-zoo .card-front .word { text-shadow: 2px 2px 0 #5a3410; }
+body.theme-zoo .card-front::before, body.theme-zoo .card-front::after { /* 釘子 */
+  content: ""; position: absolute; top: 10px; width: 12px; height: 12px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #ddd, #555);
+}
+body.theme-zoo .card-front::before { left: 10px; }
+body.theme-zoo .card-front::after { right: 10px; }
+body.theme-zoo .card-back.safe {
+  background: linear-gradient(160deg, #a7e36b, #4f9a2a); color: #183a08; border-radius: 10px; border: 4px solid #2f6a14;
+}
+body.theme-zoo .card-back.bomb { background: radial-gradient(circle, #ffd56b, #c46a00); border-radius: 10px; border: 4px solid #6b3f17; }
+
+/* =========================================================
+   主題：Chinese（中國風：宣紙 + 朱紅印章）
+   ========================================================= */
+body.theme-chinese { --text: #2b1d14; --panel: rgba(250,244,230,0.9); --panel-text: #2b1d14; --accent: #b3261e; --card-font: "Noto Serif TC", serif; }
+body.theme-chinese header h1 { font-family: "Noto Serif TC", serif; }
+body.theme-chinese .card-front {
+  background: linear-gradient(135deg, #fbf5e6, #efe4c8);
+  border: 3px solid #b3261e; outline: 2px solid #b3261e; outline-offset: -10px;
+  border-radius: 4px; color: #1d1410; box-shadow: 0 8px 18px rgba(60,30,10,0.25);
+}
+body.theme-chinese .card-front::before { /* 印章 */
+  content: "學"; position: absolute; right: 16px; bottom: 16px; width: 26px; height: 26px;
+  background: #b3261e; color: #fbf5e6; font-family: "Noto Serif TC", serif; font-size: 0.9rem;
+  display: flex; align-items: center; justify-content: center; border-radius: 3px; transform: rotate(-6deg);
+}
+body.theme-chinese .card-front::after { /* 回紋角飾 */
+  content: ""; position: absolute; left: 16px; top: 16px; width: 18px; height: 18px;
+  border-left: 3px solid #b3261e; border-top: 3px solid #b3261e;
+}
+body.theme-chinese .card-back.safe {
+  background: linear-gradient(135deg, #f2f7fb, #cfe0ef); color: #1d4f8a;
+  border: 3px solid #1d4f8a; outline: 2px solid #1d4f8a; outline-offset: -10px; border-radius: 4px;
+}
+body.theme-chinese .card-back.bomb { background: radial-gradient(circle, #ffe08a, #b3261e 75%); border: 3px solid #5a0c08; border-radius: 4px; }
+
+@media (max-width: 600px) {
+  header h1 { font-size: 1.25rem; width: 100%; }
+  #grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 12px; }
+  .bomb-emoji { font-size: 3.5rem; }
+}
+</style>
+</head>
+<body class="theme-default">
+
+<header>
+  <h1><span id="titleIcon">💣</span> Vocabulary Bomb</h1>
+  <div class="controls">
+    <select id="themeSelect" aria-label="Theme"></select>
+    <label class="btn" for="fileInput">📂 Upload Words (.txt)</label>
+    <input type="file" id="fileInput" accept=".txt,text/plain">
+    <button class="btn" id="micBtn">🎤 Voice: OFF</button>
+    <button class="btn primary" id="restartBtn">🔄 Restart</button>
+  </div>
+</header>
+
+<div class="status-bar">
+  <div class="pill">Safe cards left: <span class="num" id="safeLeft">0</span></div>
+  <div class="pill">Total cards: <span class="num" id="totalCards">0</span></div>
+  <div class="pill" id="sourcePill">Word list: <span id="sourceName">Sample words</span></div>
+  <div class="pill" id="heardPill" hidden>🎧 Heard: <span id="heardText">…</span></div>
+</div>
+
+<main><div id="grid"></div></main>
+
+<div id="tension"></div>
+<div id="flash"></div>
+
+<div id="modal">
+  <div class="modal-box">
+    <div class="modal-visual" id="modalVisual"></div>
+    <h2 id="modalTitle">BOOM!</h2>
+    <p id="modalMsg"></p>
+    <button class="btn primary" id="modalRestart">🔄 Restart</button>
+  </div>
+</div>
+
+<script>
+/* =========================================================
+   1. 音效設定（在這裡替換成你的音檔路徑）
+      src 留空 '' 時，會自動使用 Web Audio 合成音效當備案。
+   ========================================================= */
+const SOUND_CONFIG = {
+  heartbeat: { src: '', volume: 0.9 },   // 例：'sounds/heartbeat.mp3'（會循環播放）
+  explosion: { src: '', volume: 1.0 },   // 例：'sounds/explosion.mp3'
+  safe:      { src: '', volume: 0.6 }    // 例：'sounds/ding.mp3'
+};
+
+/* 預留的 Audio 物件 */
+const heartbeatAudio = new Audio();
+heartbeatAudio.loop = true;
+const explosionAudio = new Audio();
+const safeAudio = new Audio();
+
+function setupAudio(audio, cfg) {
+  if (cfg.src) { audio.src = cfg.src; audio.volume = cfg.volume; audio.preload = 'auto'; }
+}
+setupAudio(heartbeatAudio, SOUND_CONFIG.heartbeat);
+setupAudio(explosionAudio, SOUND_CONFIG.explosion);
+setupAudio(safeAudio, SOUND_CONFIG.safe);
+
+/* =========================================================
+   2. 主題設定物件 Theme Configuration Object
+      background：可填任何 CSS background 值，例如 "url('bg.jpg') center/cover"
+      bombImage ：炸彈翻開後的圖片（目前為 placeholder），留空則顯示 bombEmoji
+   ========================================================= */
+const THEMES = {
+  default: {
+    label: '💣 Default',
+    bodyClass: 'theme-default',
+    background: 'radial-gradient(circle at 20% 10%, #fff7d6 0%, #ffe0a3 40%, #ffb38a 100%)',
+    bombImage: 'https://placehold.co/300x300/222222/ffcc00?text=BOMB',
+    bombEmoji: '💣',
+    titleIcon: '💣',
+    safeIcon: '✅',
+    bombTitle: 'BOOM!',
+    bombMessage: 'You found the bomb!'
+  },
+  halloween: {
+    label: '🎃 Halloween',
+    bodyClass: 'theme-halloween',
+    background: 'radial-gradient(circle at 80% 12%, #fff6c9 0 50px, rgba(255,246,201,0.25) 51px 70px, transparent 71px), linear-gradient(180deg, #1a0b2e 0%, #3b1356 55%, #12081c 100%)',
+    bombImage: 'https://placehold.co/300x300/ff7518/1a0b2e?text=BOO!',
+    bombEmoji: '🎃',
+    titleIcon: '🎃',
+    safeIcon: '🍬',
+    bombTitle: 'BOO!',
+    bombMessage: 'The pumpkin monster jumped out!'
+  },
+  newyear: {
+    label: '🧨 New Year',
+    bodyClass: 'theme-newyear',
+    background: 'radial-gradient(circle at 50% 0%, #ff4d3a 0%, #c40c0c 45%, #7a0000 100%)',
+    bombImage: 'https://placehold.co/300x300/ffcc33/b80f0f?text=BANG!',
+    bombEmoji: '🧨',
+    titleIcon: '🧧',
+    safeIcon: '🍊',
+    bombTitle: 'BANG!',
+    bombMessage: 'The giant firecracker went off!'
+  },
+  zoo: {
+    label: '🦁 Zoo',
+    bodyClass: 'theme-zoo',
+    background: 'radial-gradient(ellipse at 10% 0%, #8fd16a 0%, transparent 45%), radial-gradient(ellipse at 90% 100%, #1d5a1a 0%, transparent 55%), linear-gradient(160deg, #3f8f2f 0%, #23631f 60%, #143d12 100%)',
+    bombImage: 'https://placehold.co/300x300/c46a00/fff6dc?text=ROAR!',
+    bombEmoji: '🦁',
+    titleIcon: '🐾',
+    safeIcon: '🍌',
+    bombTitle: 'ROAR!',
+    bombMessage: 'You woke up the sleeping lion!'
+  },
+  chinese: {
+    label: '🏮 Chinese Style',
+    bodyClass: 'theme-chinese',
+    background: 'radial-gradient(ellipse at 15% 100%, rgba(60,60,60,0.35) 0%, transparent 40%), radial-gradient(ellipse at 70% 105%, rgba(40,40,40,0.28) 0%, transparent 45%), linear-gradient(180deg, #f6efdd 0%, #eadfc4 100%)',
+    bombImage: 'https://placehold.co/300x300/b3261e/fbf5e6?text=DRAGON',
+    bombEmoji: '🐉',
+    titleIcon: '🏮',
+    safeIcon: '🏮',
+    bombTitle: 'BOOM!',
+    bombMessage: 'The sleeping dragon has awakened!'
+  }
+};
+
+/* 沒上傳檔案時的預設生詞 */
+const SAMPLE_WORDS = ['蘋果', '老師', '學校', '朋友', '喜歡', '書包', '鉛筆', '飛機',
+                      '熊貓', '漂亮', '下雨', '早餐', '電腦', '音樂', '公園', '生日'];
+
+/* =========================================================
+   3. 遊戲狀態
+   ========================================================= */
+let words = [...SAMPLE_WORDS];
+let cards = [];            // [{ word, isBomb, flipped }]
+let gameState = 'playing'; // 'playing' | 'over' | 'won'
+let currentTheme = 'default';
+let modalTimer = null;
+
+const $ = (id) => document.getElementById(id);
+const grid = $('grid');
+
+/* =========================================================
+   4. Web Audio 合成音效（當 src 留空或載入失敗時使用）
+   ========================================================= */
+let audioCtx = null;
+function ctx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+function synthThump(time, freq, gainVal) {
+  const c = ctx();
+  const o = c.createOscillator(), g = c.createGain();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(freq, time);
+  o.frequency.exponentialRampToValueAtTime(freq * 0.5, time + 0.15);
+  g.gain.setValueAtTime(0.0001, time);
+  g.gain.exponentialRampToValueAtTime(gainVal, time + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, time + 0.2);
+  o.connect(g).connect(c.destination);
+  o.start(time); o.stop(time + 0.25);
+}
+function synthHeartbeatOnce() {
+  const t = ctx().currentTime;
+  synthThump(t, 70, 0.9);         // lub
+  synthThump(t + 0.18, 60, 0.6);  // dub
+}
+function synthExplosion() {
+  const c = ctx(), t = c.currentTime, dur = 1.8;
+  const buf = c.createBuffer(1, c.sampleRate * dur, c.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 2.5);
+  const noise = c.createBufferSource(); noise.buffer = buf;
+  const lp = c.createBiquadFilter(); lp.type = 'lowpass';
+  lp.frequency.setValueAtTime(3000, t); lp.frequency.exponentialRampToValueAtTime(120, t + dur);
+  const g = c.createGain(); g.gain.setValueAtTime(1.2, t);
+  noise.connect(lp).connect(g).connect(c.destination); noise.start(t);
+  const o = c.createOscillator(), og = c.createGain();
+  o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(30, t + 0.8);
+  og.gain.setValueAtTime(1, t); og.gain.exponentialRampToValueAtTime(0.001, t + 1);
+  o.connect(og).connect(c.destination); o.start(t); o.stop(t + 1);
+}
+function synthDing() {
+  const c = ctx(), t = c.currentTime;
+  [880, 1320].forEach((f, i) => {
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = 'triangle'; o.frequency.value = f;
+    g.gain.setValueAtTime(0.0001, t + i * 0.08);
+    g.gain.exponentialRampToValueAtTime(0.3, t + i * 0.08 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.08 + 0.35);
+    o.connect(g).connect(c.destination); o.start(t + i * 0.08); o.stop(t + i * 0.08 + 0.4);
+  });
+}
+/* 有音檔就播音檔，失敗則用合成音 */
+function playSound(audio, cfg, fallback) {
+  if (cfg.src) {
+    audio.currentTime = 0;
+    audio.play().catch(fallback);
+  } else fallback();
+}
+
+/* ---------- 心跳控制 ---------- */
+let heartbeatTimer = null;
+let heartbeatOn = false;
+function startHeartbeat(left) {
+  const interval = 450 + left * 110;               // 剩越少跳越快：5 張 ≈ 1s，1 張 ≈ 0.56s
+  document.body.style.setProperty('--beat', interval + 'ms');
+  document.body.classList.add('tense');
+  if (SOUND_CONFIG.heartbeat.src) {
+    heartbeatAudio.playbackRate = 1 + (5 - left) * 0.15;
+    if (heartbeatAudio.paused) heartbeatAudio.play().catch(() => {});
+  } else {
+    clearInterval(heartbeatTimer);
+    if (!heartbeatOn) synthHeartbeatOnce();
+    heartbeatTimer = setInterval(synthHeartbeatOnce, interval);
+  }
+  heartbeatOn = true;
+}
+function stopHeartbeat() {
+  heartbeatOn = false;
+  clearInterval(heartbeatTimer); heartbeatTimer = null;
+  heartbeatAudio.pause(); heartbeatAudio.currentTime = 0;
+  document.body.classList.remove('tense');
+}
+
+/* 緊張倒數判斷：未翻開的安全卡 <= 5 時播放心跳 */
+function updateTension() {
+  const left = cards.filter(c => !c.isBomb && !c.flipped).length;
+  $('safeLeft').textContent = left;
+  if (gameState === 'playing' && left > 0 && left <= 5) startHeartbeat(left);
+  else stopHeartbeat();
+}
+
+/* =========================================================
+   5. 遊戲流程
+   ========================================================= */
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function newGame() {
+  clearTimeout(modalTimer);
+  $('modal').classList.remove('show');
+  document.body.classList.remove('shake');
+  $('flash').classList.remove('on');
+  stopHeartbeat();
+
+  const shuffled = shuffle(words);
+  const bombIndex = Math.floor(Math.random() * shuffled.length);
+  cards = shuffled.map((w, i) => ({ word: w, isBomb: i === bombIndex, flipped: false }));
+  gameState = 'playing';
+  renderCards();
+  updateTension();
+}
+
+function wordFontSize(word) {
+  const n = [...word].length;
+  if (n <= 2) return '2.6rem';
+  if (n <= 3) return '2.2rem';
+  if (n <= 4) return '1.8rem';
+  if (n <= 6) return '1.4rem';
+  return '1.1rem';
+}
+
+function renderCards() {
+  grid.innerHTML = '';
+  $('totalCards').textContent = cards.length;
+  if (cards.length < 2) {
+    grid.innerHTML = '<div class="empty-hint">Please upload a .txt file with at least 2 words (one word per line).</div>';
+    return;
+  }
+  cards.forEach((card, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'card';
+    btn.dataset.index = i;
+    btn.setAttribute('aria-label', card.word);
+    btn.innerHTML = `
+      <div class="card-inner">
+        <div class="card-face card-front"><span class="word"></span></div>
+        <div class="card-face card-back"></div>
+      </div>`;
+    const w = btn.querySelector('.word');
+    w.textContent = card.word;
+    w.style.fontSize = wordFontSize(card.word);
+    btn.addEventListener('click', () => flipCard(i));
+    grid.appendChild(btn);
+  });
+}
+
+function createBombVisual(theme) {
+  const emoji = () => {
+    const s = document.createElement('span');
+    s.className = 'bomb-emoji'; s.textContent = theme.bombEmoji;
+    return s;
+  };
+  if (!theme.bombImage) return emoji();
+  const img = document.createElement('img');
+  img.className = 'bomb-visual'; img.alt = theme.bombTitle; img.src = theme.bombImage;
+  img.onerror = () => img.replaceWith(emoji());   // 圖片讀不到時改用 emoji
+  return img;
+}
+
+/* 依目前主題填入卡片背面內容 */
+function fillBack(el, card) {
+  const theme = THEMES[currentTheme];
+  const back = el.querySelector('.card-back');
+  back.innerHTML = '';
+  back.className = 'card-face card-back ' + (card.isBomb ? 'bomb' : 'safe');
+  if (card.isBomb) {
+    back.appendChild(createBombVisual(theme));
+  } else {
+    const icon = document.createElement('div');
+    icon.className = 'safe-icon'; icon.textContent = theme.safeIcon;
+    const w = document.createElement('span');
+    w.className = 'word'; w.textContent = card.word;
+    back.append(icon, w);
+  }
+}
+
+function flipCard(i, viaVoice = false) {
+  const card = cards[i];
+  if (!card || card.flipped || gameState !== 'playing') return;
+  card.flipped = true;
+  const el = grid.querySelector(`.card[data-index="${i}"]`);
+  fillBack(el, card);
+  el.disabled = true;
+  el.classList.add('flipped', card.isBomb ? 'bomb' : 'safe');
+  if (viaVoice) { el.classList.add('voice-hit'); el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+
+  if (card.isBomb) {
+    explode(card);
+  } else {
+    playSound(safeAudio, SOUND_CONFIG.safe, synthDing);
+    const left = cards.filter(c => !c.isBomb && !c.flipped).length;
+    if (left === 0) win();
+    else updateTension();
+  }
+}
+
+/* 爆炸：音效 + 全頁震動 + 紅光閃爍 */
+function explode(card) {
+  gameState = 'over';
+  stopHeartbeat();
+  playSound(explosionAudio, SOUND_CONFIG.explosion, synthExplosion);
+
+  const body = document.body;
+  body.classList.remove('shake'); void body.offsetWidth;   // 重新觸發動畫
+  body.classList.add('shake');
+  const flash = $('flash');
+  flash.classList.remove('on'); void flash.offsetWidth;
+  flash.classList.add('on');
+  setTimeout(() => body.classList.remove('shake'), 1600);
+
+  grid.querySelectorAll('.card').forEach(b => b.disabled = true);
+  modalTimer = setTimeout(() => showModal('over', card.word), 1700);
+}
+
+function win() {
+  gameState = 'won';
+  stopHeartbeat();
+  // 揭曉炸彈位置
+  const bombIdx = cards.findIndex(c => c.isBomb);
+  const el = grid.querySelector(`.card[data-index="${bombIdx}"]`);
+  if (el) { fillBack(el, cards[bombIdx]); el.classList.add('flipped'); el.disabled = true; }
+  modalTimer = setTimeout(() => showModal('won', cards[bombIdx].word), 900);
+}
+
+function showModal(type, bombWord) {
+  const theme = THEMES[currentTheme];
+  const visual = $('modalVisual');
+  visual.innerHTML = '';
+  if (type === 'over') {
+    visual.appendChild(createBombVisual(theme));
+    $('modalTitle').textContent = theme.bombTitle;
+    $('modalMsg').innerHTML = `${theme.bombMessage}<br>The bomb was: <span class="bomb-word"></span>`;
+  } else {
+    visual.innerHTML = '<span class="bomb-emoji">🏆</span>';
+    $('modalTitle').textContent = 'YOU WIN!';
+    $('modalMsg').innerHTML = `All safe cards cleared!<br>The bomb was hiding under: <span class="bomb-word"></span>`;
+  }
+  $('modalMsg').querySelector('.bomb-word').textContent = bombWord;
+  $('modal').classList.add('show');
+}
+
+/* =========================================================
+   6. 主題切換（不重新載入，動態替換 class 與背景）
+   ========================================================= */
+function applyTheme(key) {
+  const theme = THEMES[key];
+  if (!theme) return;
+  Object.values(THEMES).forEach(t => document.body.classList.remove(t.bodyClass));
+  document.body.classList.add(theme.bodyClass);
+  document.body.style.background = theme.background;
+  document.body.style.backgroundAttachment = 'fixed';
+  $('titleIcon').textContent = theme.titleIcon;
+  currentTheme = key;
+  // 已翻開的卡片背面也一起換主題
+  cards.forEach((c, i) => {
+    if (!c.flipped) return;
+    const el = grid.querySelector(`.card[data-index="${i}"]`);
+    if (el) fillBack(el, c);
+  });
+}
+
+const themeSelect = $('themeSelect');
+Object.entries(THEMES).forEach(([key, t]) => {
+  const opt = document.createElement('option');
+  opt.value = key; opt.textContent = t.label;
+  themeSelect.appendChild(opt);
+});
+themeSelect.addEventListener('change', (e) => applyTheme(e.target.value));
+
+/* =========================================================
+   7. 上傳 .txt 生詞檔（自動判斷 UTF-8 / Big5 編碼）
+   ========================================================= */
+$('fileInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const buffer = await file.arrayBuffer();
+  let text;
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(buffer); }
+  catch { text = new TextDecoder('big5').decode(buffer); }   // Windows 記事本舊格式
+  const list = [...new Set(
+    text.replace(/^﻿/, '').split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+  )];
+  if (list.length < 2) {
+    alert('The file needs at least 2 words (one word per line).');
+  } else {
+    words = list;
+    $('sourceName').textContent = file.name;
+    newGame();
+  }
+  e.target.value = '';   // 允許重複上傳同一個檔案
+});
+
+/* =========================================================
+   8. 語音模式（Web Speech API, zh-TW）
+   ========================================================= */
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+let listening = false;
+let handledResult = -1;   // 已處理過的結果序號，避免同一句重複觸發
+
+const normalize = (s) => s.toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
+
+function matchSpoken(transcript) {
+  const said = normalize(transcript);
+  if (!said) return -1;
+  // 長詞優先比對，避免「蘋果汁」被「蘋果」搶先
+  const candidates = cards
+    .map((c, i) => ({ i, key: normalize(c.word), flipped: c.flipped }))
+    .filter(c => !c.flipped && c.key)
+    .sort((a, b) => b.key.length - a.key.length);
+  const hit = candidates.find(c => said.includes(c.key));
+  return hit ? hit.i : -1;
+}
+
+function initRecognition() {
+  recognition = new SpeechRecognition();
+  recognition.lang = 'zh-TW';
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 3;
+
+  recognition.onstart = () => { handledResult = -1; };
+
+  recognition.onresult = (event) => {
+    for (let r = event.resultIndex; r < event.results.length; r++) {
+      const result = event.results[r];
+      $('heardText').textContent = result[0].transcript;
+      if (r <= handledResult || gameState !== 'playing') continue;
+      for (let a = 0; a < result.length; a++) {        // 檢查多個辨識候選
+        const idx = matchSpoken(result[a].transcript);
+        if (idx !== -1) { handledResult = r; flipCard(idx, true); break; }
+      }
+    }
+  };
+
+  recognition.onerror = (e) => {
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+      alert('Microphone permission was denied. Please allow microphone access and try again.');
+      setListening(false);
+    }
+  };
+
+  recognition.onend = () => {   // 瀏覽器會自動中斷，持續聆聽時自動重啟
+    if (listening) setTimeout(() => { try { recognition.start(); } catch {} }, 250);
+  };
+}
+
+function setListening(on) {
+  listening = on;
+  const btn = $('micBtn');
+  btn.textContent = on ? '🎤 Voice: ON' : '🎤 Voice: OFF';
+  btn.classList.toggle('mic-on', on);
+  $('heardPill').hidden = !on;
+  if (on) { try { recognition.start(); } catch {} }
+  else if (recognition) recognition.stop();
+}
+
+$('micBtn').addEventListener('click', () => {
+  if (!SpeechRecognition) {
+    alert('Voice mode is not supported in this browser. Please use Google Chrome or Microsoft Edge.');
+    return;
+  }
+  if (!recognition) initRecognition();
+  ctx();
+  setListening(!listening);
+});
+
+/* =========================================================
+   9. 按鈕與初始化
+   ========================================================= */
+$('restartBtn').addEventListener('click', newGame);
+$('modalRestart').addEventListener('click', newGame);
+document.addEventListener('pointerdown', () => ctx(), { once: true });   // 解鎖瀏覽器音效
+
+applyTheme('default');
+newGame();
+</script>
+</body>
+</html>
